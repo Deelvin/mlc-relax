@@ -99,6 +99,7 @@ from . import backend
 from . import training
 from . import distributed
 from . import frontend
+from . import quantize
 
 # VM
 from .vm_build import build, Executable

@@ -1078,6 +1078,22 @@ def AllocateWorkspace() -> tvm.ir.transform.Pass:
     return _ffi_api.AllocateWorkspace()  # type: ignore
 
 
+def Annotate(funcs, mode: str = "") -> tvm.ir.transform.Pass:
+    return _ffi_api.Annotate(funcs, mode)  # type: ignore
+
+
+def CollectStat() -> tvm.ir.transform.Pass:
+    return _ffi_api.CollectStat()  # type: ignore
+
+def SmoothQuantLegalize(smooth_op_mode: str) -> tvm.ir.transform.Pass:
+    return _ffi_api.SmoothQuantLegalize(smooth_op_mode)  # type: ignore
+
+def SmoothQuantRealize() -> tvm.ir.transform.Pass:
+    return _ffi_api.SmoothQuantRealize()  # type: ignore
+
+def SmoothQuantStopLiftParams() -> tvm.ir.transform.Pass:
+    return _ffi_api.SmoothQuantStopLiftParams()  # type: ignore
+
 def _wrap_class_function_pass(pass_cls, pass_info):
     """Wrap a python class as function pass."""
 

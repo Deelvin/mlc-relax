@@ -23,6 +23,7 @@
 #include <tvm/relay/op.h>
 
 #include "op_common.h"
+#include "op.h"
 
 namespace tvm {
 namespace relax {

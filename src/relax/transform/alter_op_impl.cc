@@ -30,6 +30,9 @@
 #include <tvm/relax/expr_functor.h>
 #include <tvm/relax/transform.h>
 #include <tvm/tir/transform.h>
+
+#include "utils.h"
+
 namespace tvm {
 namespace relax {
 
@@ -41,7 +44,7 @@ static Array<Range> ConstructRangeFromShape(const Array<PrimExpr>& shape) {
   return shape.Map([](const PrimExpr& dim) { return Range(tir::make_zero(dim.dtype()), dim); });
 }
 
-static Array<PrimExpr> GetShapeFromTensorStructInfo(const TensorStructInfo& tensor_sinfo) {
+/*static Array<PrimExpr> GetShapeFromTensorStructInfo(const TensorStructInfo& tensor_sinfo) {
   auto shape = tensor_sinfo->GetShape();
   ICHECK(shape.defined());
   return shape.value();
@@ -50,7 +53,7 @@ static Array<PrimExpr> GetShapeFromTensorStructInfo(const TensorStructInfo& tens
 static Array<PrimExpr> GetShapeFromTensor(const Expr& expr) {
   const auto& tensor_sinfo = Downcast<TensorStructInfo>(expr->struct_info_);
   return GetShapeFromTensorStructInfo(tensor_sinfo);
-}
+}*/
 
 static IndexMap DeepCopyIndexMap(const IndexMap& index_map) {
   return Downcast<IndexMap>(LoadJSON(SaveJSON(index_map)));
