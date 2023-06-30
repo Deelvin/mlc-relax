@@ -7,8 +7,6 @@ from tvm.runtime import Object
 from . import _quantize
 
 
-dev = tvm.cpu(0)
-
 @tvm._ffi.register_object("relax.quantize.SmoothQuantConfig")
 class SmoothQuantConfig(Object):
     _node_defaults = {
@@ -37,24 +35,21 @@ def current_qconfig():
 
 def get_runtime_func(funcs, mod, target):
     lowered_mod = relax.transform.LegalizeOps()(mod)
+
+    target_kind = target.kind.default_keys[0]
+    vm_device = tvm.device(target_kind)
+    if target_kind != "cpu":
+        with target:
+            lowered_mod = tvm.tir.transform.DefaultGPUSchedule()(lowered_mod)
+
     exe = relax.build(lowered_mod, target)
-    vm = relax.VirtualMachine(exe, dev)
+    vm = relax.VirtualMachine(exe, vm_device)
 
     runtime_funcs = []
     for fname in funcs:
         runtime_funcs.append(vm[fname])
 
     return runtime_funcs[0] if len(funcs) == 1 else runtime_funcs
-
-
-def _get_device(dataset):
-    """ Choose TVM device based on dataset """
-    assert len(dataset) > 0, "Dataset can not be empty"
-    if isinstance(dataset[0], (tuple, list)):
-        assert len(dataset[0]) > 0, "Element in dataset can not be empty"
-        return dataset[0][0].device
-    else:
-        return dataset[0].device
 
 
 def _accumulate_outlier_stat(stat, data):
@@ -140,50 +135,49 @@ def smooth(mod, params, funcs, dataset, extra_passes=None):
 
     target = tvm.target.Target.current(allow_none=False)
     print(f"Smoothing: used target for statistics collection: {target}")
-    f = get_runtime_func(funcs, stat_mod, target)
-    #kvc, prefill, decode = get_runtime_func(funcs, stat_mod, target)
+    #f = get_runtime_func(funcs, stat_mod, target)
+    kvc, prefill, decode, _, _ = get_runtime_func(funcs, stat_mod, target)
 
     # Calculate max statistics
     # Number of dimension in a_stat/w_stat is equal to 3, where:
     #  * 1st dimension - number of outputs in compute graph / 2
     #  * 2nd dimension - number of elements in dataset
     #  * 3rd dimension - scale(multiplier) dimension.
-    a_stat = None
-    w_stat = None
+    #a_stat = None
+    #w_stat = None
 
-    #a_stat_prefill = None
-    #w_stat_prefill = None
-    #a_stat_decode = None
-    #w_stat_decode = None
+    a_stat_prefill = None
+    w_stat_prefill = None
+    a_stat_decode = None
+    w_stat_decode = None
 
     for data in dataset:
-        _, outputs = f(data, params["weight"])
+        """
+        _, outputs = f(data, *params)
         a_stat = _accumulate_act_outlier_stat(a_stat, outputs)
         w_stat = _accumulate_weight_outlier_stat(w_stat, outputs)
-
         """
         kv_caches = kvc()
         prefill_input, seq_len_shape, first_sampled_token, second_seq_len_shape = data
-        print("Run prefill...")
+        print("  Run prefill...")
         (logits, kv_caches), outputs = prefill(prefill_input, seq_len_shape, kv_caches, *params)
 
         a_stat_prefill = _accumulate_act_outlier_stat(a_stat_prefill, outputs)
         w_stat_prefill = _accumulate_weight_outlier_stat(w_stat_prefill, outputs)
 
-        print("Run decode...")
+        print("  Run decode...")
         (logits, kv_caches), outputs = decode(first_sampled_token, second_seq_len_shape, kv_caches, *params)
-        #logits, kv_caches = decode(first_sampled_token, second_seq_len_shape, kv_caches, *params)
 
-        print("Run decode stat accumulation...")
+        print("  Run smooth stat accumulation...")
         a_stat_decode = _accumulate_act_outlier_stat(a_stat_decode, outputs)
         w_stat_decode = _accumulate_weight_outlier_stat(w_stat_decode, outputs)
-        """
 
+    """
     a_stat = [np.max(s, axis=0) for s in a_stat]
     w_stat = [np.max(s, axis=0) for s in w_stat]
     stat = {"main": (a_stat, w_stat)}
-
     """
+
     a_stat_prefill = [np.max(s, axis=0) for s in a_stat_prefill]
     w_stat_prefill = [np.max(s, axis=0) for s in w_stat_prefill]
 
@@ -193,11 +187,9 @@ def smooth(mod, params, funcs, dataset, extra_passes=None):
     stat = dict.fromkeys(funcs)
     stat["prefill"] = (a_stat_prefill, w_stat_prefill)
     stat["decode"] = (a_stat_decode, w_stat_decode)
-    """
 
-    dev = _get_device(dataset)
     for fname in funcs:
-        scale_params = _calculate_scale_params(fname, stat, dev)
+        scale_params = _calculate_scale_params(fname, stat, tvm.cpu(0))
         mod = relax.transform.BindParams(fname, scale_params)(mod)
 
     mod = relax.transform.SmoothQuantLegalize("multiply")(mod)
@@ -222,45 +214,43 @@ def quantize(mod, params, funcs, dataset, extra_passes=None):
 
     target = tvm.target.Target.current(allow_none=False)
     print(f"Quantization: used target for statistics collection: {target}")
-    f = get_runtime_func(funcs, stat_mod, target)
-    #kvc, prefill, decode, _, _ = get_runtime_func(funcs, stat_mod, target)
+    #f = get_runtime_func(funcs, stat_mod, target)
+    kvc, prefill, decode, _, _ = get_runtime_func(funcs, stat_mod, target)
 
-    a_stat = None
-    w_stat = None
+    #a_stat = None
+    #w_stat = None
 
-    #a_stat_prefill = None
-    #w_stat_prefill = None
-    #a_stat_decode = None
-    #w_stat_decode = None
+    a_stat_prefill = None
+    w_stat_prefill = None
+    a_stat_decode = None
+    w_stat_decode = None
 
     for data in dataset:
-        #"""
-        _, outputs = f(data, params["weight"])
+        """
+        _, outputs = f(data, *params)
         a_stat = _accumulate_act_outlier_stat(a_stat, outputs)
         w_stat = _accumulate_weight_outlier_stat(w_stat, outputs)
         """
         kv_caches = kvc()
         prefill_input, seq_len_shape, first_sampled_token, second_seq_len_shape = data
-        print("Run prefill...")
+        print("  Run prefill...")
         (logits, kv_caches), outputs = prefill(prefill_input, seq_len_shape, kv_caches, *params)
 
         a_stat_prefill = _accumulate_act_outlier_stat(a_stat_prefill, outputs)
         w_stat_prefill = _accumulate_weight_outlier_stat(w_stat_prefill, outputs)
 
-        print("Run decode...")
+        print("  Run decode...")
         (logits, kv_caches), outputs = decode(first_sampled_token, second_seq_len_shape, kv_caches, *params)
-        #logits, kv_caches = decode(first_sampled_token, second_seq_len_shape, kv_caches, *params)
 
-        print("Run decode stat accumulation...")
+        print("  Run quantize stat accumulation...")
         a_stat_decode = _accumulate_act_outlier_stat(a_stat_decode, outputs)
         w_stat_decode = _accumulate_weight_outlier_stat(w_stat_decode, outputs)
-        """
 
 
+    """
     a_stat = [np.max(s, axis=0) for s in a_stat]
     w_stat = [np.max(s, axis=0) for s in w_stat]
     stat = {"main": (a_stat, w_stat)}
-
     """
     a_stat_prefill = [np.max(s, axis=0) for s in a_stat_prefill]
     w_stat_prefill = [np.max(s, axis=0) for s in w_stat_prefill]
@@ -271,11 +261,10 @@ def quantize(mod, params, funcs, dataset, extra_passes=None):
     stat = dict.fromkeys(funcs)
     stat["prefill"] = (a_stat_prefill, w_stat_prefill)
     stat["decode"] = (a_stat_decode, w_stat_decode)
-    """
 
-    dev = _get_device(dataset)
+
     for fname in funcs:
-        scale_params = _calculate_quant_scale_params(fname, stat, dev)
+        scale_params = _calculate_quant_scale_params(fname, stat, tvm.cpu(0))
         mod = relax.transform.BindParams(fname, scale_params)(mod)
 
     legalized_mod = relax.transform.SmoothQuantLegalize("quantize")(mod)
