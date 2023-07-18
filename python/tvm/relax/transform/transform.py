@@ -1094,6 +1094,9 @@ def SmoothQuantRealize() -> tvm.ir.transform.Pass:
 def SmoothQuantStopLiftParams() -> tvm.ir.transform.Pass:
     return _ffi_api.SmoothQuantStopLiftParams()  # type: ignore
 
+def SmoothQuantReshapeMatmul() -> tvm.ir.transform.Pass:
+    return _ffi_api.SmoothQuantReshapeMatmul()  # type: ignore
+
 def _wrap_class_function_pass(pass_cls, pass_info):
     """Wrap a python class as function pass."""
 

@@ -462,6 +462,36 @@ class StopLiftParamsAnnotator : public ExprMutator {
 };
 
 
+class ReshapeAnnotator : public ExprMutator {
+ public:
+  Expr VisitExpr_(const CallNode* call_node) final {
+    Expr new_e = ExprMutator::VisitExpr_(call_node);
+    Call new_call = Downcast<Call>(new_e);
+
+    if (new_call->op == matmul_op_) {
+      Expr lhs = new_call->args[0];
+      Expr rhs = new_call->args[1];
+
+      // Insert activation reshape for 3Dx2D matmul
+      if (GetNumDimsFromTensor(lhs) == 3 && GetNumDimsFromTensor(rhs) == 2) {
+        auto lhs_shape = GetShapeFromTensor(lhs);
+        if (Downcast<IntImm>(lhs_shape[0])->value != 1)
+          return new_e;
+        auto out_shape = GetShapeFromTensor(new_e);
+        Expr lhs_reshape = reshape(lhs, Array<PrimExpr>({lhs_shape[1], lhs_shape[2]}));
+        auto attrs = new_call->attrs.as<MatmulAttrs>();
+        Expr mm = matmul(lhs_reshape, rhs, attrs->out_dtype);
+        return reshape(mm, out_shape);
+      }
+    }
+    return new_e;
+  }
+
+ private:
+  const Op& matmul_op_ = Op::Get("relax.matmul");
+};
+
+
 Expr CollectStat(Function f) { return ParamsAndOutputsMutator().Run(f); }
 
 Expr Legalize(Function f, String smooth_op_mode) { return Legalizer(smooth_op_mode).VisitExpr(f); }
@@ -469,6 +499,8 @@ Expr Legalize(Function f, String smooth_op_mode) { return Legalizer(smooth_op_mo
 Expr Realize(Function f) { return Realizer().Run(f); }
 
 Expr StopLiftParams(Function f) { return StopLiftParamsAnnotator().VisitExpr(f); }
+
+Expr ReshapeMatmul(Function f) { return ReshapeAnnotator().VisitExpr(f); }
 
 
 namespace transform {
@@ -512,6 +544,14 @@ Pass SmoothQuantStopLiftParams() {
 }
 
 TVM_REGISTER_GLOBAL("relax.transform.SmoothQuantStopLiftParams").set_body_typed(SmoothQuantStopLiftParams);
+
+Pass SmoothQuantReshapeMatmul() {
+  runtime::TypedPackedFunc<Function(Function, IRModule, PassContext)> pass_func =
+      [=](Function f, IRModule m, PassContext pc) { return Downcast<Function>(ReshapeMatmul(f)); };
+  return CreateFunctionPass(pass_func, 0, "SmoothQuantReshapeMatmul", {});
+}
+
+TVM_REGISTER_GLOBAL("relax.transform.SmoothQuantReshapeMatmul").set_body_typed(SmoothQuantReshapeMatmul);
 
 }  // namespace transform
 

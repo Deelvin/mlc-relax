@@ -525,6 +525,7 @@ TVM_DLL Pass CollectStat();
 TVM_DLL Pass SmoothQuantLegalize(String smooth_op_mode);
 TVM_DLL Pass SmoothQuantRealize();
 TVM_DLL Pass SmoothQuantStopLiftParams();
+TVM_DLL Pass SmoothQuantReshapeMatmul();
 
 }  // namespace transform
 }  // namespace relax

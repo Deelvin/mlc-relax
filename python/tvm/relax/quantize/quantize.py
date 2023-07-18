@@ -153,7 +153,7 @@ def smooth(mod, params, funcs, dataset, extra_passes=None):
 
     for data in dataset:
         """
-        _, outputs = f(data, *params)
+        _, outputs = f(data, params["weight"])
         a_stat = _accumulate_act_outlier_stat(a_stat, outputs)
         w_stat = _accumulate_weight_outlier_stat(w_stat, outputs)
         """
@@ -227,7 +227,7 @@ def quantize(mod, params, funcs, dataset, extra_passes=None):
 
     for data in dataset:
         """
-        _, outputs = f(data, *params)
+        _, outputs = f(data, params["weight"])
         a_stat = _accumulate_act_outlier_stat(a_stat, outputs)
         w_stat = _accumulate_weight_outlier_stat(w_stat, outputs)
         """
@@ -270,5 +270,6 @@ def quantize(mod, params, funcs, dataset, extra_passes=None):
     legalized_mod = relax.transform.SmoothQuantLegalize("quantize")(mod)
     mod = relax.transform.SmoothQuantRealize()(legalized_mod)
     mod = relax.transform.DeadCodeElimination(funcs)(mod)
+    mod = relax.transform.SmoothQuantReshapeMatmul()(mod)
 
     return mod
