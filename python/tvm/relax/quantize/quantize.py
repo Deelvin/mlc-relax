@@ -1,4 +1,5 @@
 import numpy as np
+from tqdm import tqdm
 
 import tvm
 from tvm import relax
@@ -93,7 +94,7 @@ def _calculate_scale_params(func_name, stats, dev):
         if scales.size - np.count_nonzero(scales) > 0:
             print("Warning: Smoothing: scales have zero value")
             scales = np.ones_like(scales)
-            assert False, "Not supported case"
+            assert False, "Not supported case: please, add more elements in dataset. Otherwise, NaNs in output are possible."
         scale_params[f"sq_scale_{idx}"] = tvm.nd.array(scales, dev)
         scale_params[f"sq_scale_{idx+1}"] = tvm.nd.array(scales, dev)
         idx += 2
@@ -118,6 +119,11 @@ def _calculate_quant_scale_params(func_name, stats, dev):
     return scale_params
 
 
+# Should we specify these values through the SQ config?
+STOP_TOKENS = ([2])
+MAX_DECODER_INVOKE_NUM = 5
+
+
 def smooth(mod, params, funcs, dataset, extra_passes=None):
     mod = relax.transform.Annotate(funcs)(mod)
     mod = relax.transform.DeadCodeElimination(funcs)(mod)
@@ -134,7 +140,7 @@ def smooth(mod, params, funcs, dataset, extra_passes=None):
         stat_mod = seq(stat_mod)
 
     target = tvm.target.Target.current(allow_none=False)
-    print(f"Smoothing: used target for statistics collection: {target}")
+    print(f"[SmoothQuant][Smoothing] Target for statistics collection: {target}")
     #f = get_runtime_func(funcs, stat_mod, target)
     kvc, prefill, decode, _, _ = get_runtime_func(funcs, stat_mod, target)
 
@@ -151,26 +157,37 @@ def smooth(mod, params, funcs, dataset, extra_passes=None):
     a_stat_decode = None
     w_stat_decode = None
 
-    for data in dataset:
+    for data in tqdm(dataset, desc="Smoothing"):
         """
         _, outputs = f(data, params["weight"])
         a_stat = _accumulate_act_outlier_stat(a_stat, outputs)
         w_stat = _accumulate_weight_outlier_stat(w_stat, outputs)
         """
+        # Create KV-cache
         kv_caches = kvc()
-        prefill_input, seq_len_shape, first_sampled_token, second_seq_len_shape = data
-        print("  Run prefill...")
+        prefill_input = data
+        num_tokens = prefill_input.shape[1]
+        seq_len_shape = tvm.runtime.ShapeTuple([num_tokens])
+
+        # Run Encoder
         (logits, kv_caches), outputs = prefill(prefill_input, seq_len_shape, kv_caches, *params)
 
         a_stat_prefill = _accumulate_act_outlier_stat(a_stat_prefill, outputs)
         w_stat_prefill = _accumulate_weight_outlier_stat(w_stat_prefill, outputs)
 
-        print("  Run decode...")
-        (logits, kv_caches), outputs = decode(first_sampled_token, second_seq_len_shape, kv_caches, *params)
+        # Run Decoder
+        for num in range(MAX_DECODER_INVOKE_NUM):
+            # TODO: support softmax with temperature.
+            logits_max = np.argmax(logits.numpy(), axis=-1).astype("int32")
+            if logits_max[0] in STOP_TOKENS:
+                break
+            next_token = tvm.nd.array(logits_max, device=tvm.device(target.kind.default_keys[0]))
+            num_tokens += logits_max.shape[1]
+            seq_len_shape = tvm.runtime.ShapeTuple([num_tokens])
+            (logits, kv_caches), outputs = decode(next_token, seq_len_shape, kv_caches, *params)
 
-        print("  Run smooth stat accumulation...")
-        a_stat_decode = _accumulate_act_outlier_stat(a_stat_decode, outputs)
-        w_stat_decode = _accumulate_weight_outlier_stat(w_stat_decode, outputs)
+            a_stat_decode = _accumulate_act_outlier_stat(a_stat_decode, outputs)
+            w_stat_decode = _accumulate_weight_outlier_stat(w_stat_decode, outputs)
 
     """
     a_stat = [np.max(s, axis=0) for s in a_stat]
@@ -213,7 +230,7 @@ def quantize(mod, params, funcs, dataset, extra_passes=None):
         stat_mod = seq(stat_mod)
 
     target = tvm.target.Target.current(allow_none=False)
-    print(f"Quantization: used target for statistics collection: {target}")
+    print(f"[SmoothQuant][Calibration] Target for statistics collection: {target}")
     #f = get_runtime_func(funcs, stat_mod, target)
     kvc, prefill, decode, _, _ = get_runtime_func(funcs, stat_mod, target)
 
@@ -225,26 +242,38 @@ def quantize(mod, params, funcs, dataset, extra_passes=None):
     a_stat_decode = None
     w_stat_decode = None
 
-    for data in dataset:
+    for data in tqdm(dataset, desc="Calibration"):
         """
         _, outputs = f(data, params["weight"])
         a_stat = _accumulate_act_outlier_stat(a_stat, outputs)
         w_stat = _accumulate_weight_outlier_stat(w_stat, outputs)
         """
+
+        # Create KV-cache
         kv_caches = kvc()
-        prefill_input, seq_len_shape, first_sampled_token, second_seq_len_shape = data
-        print("  Run prefill...")
+        prefill_input = data
+        num_tokens = prefill_input.shape[1]
+        seq_len_shape = tvm.runtime.ShapeTuple([num_tokens])
+
+        # Run Encoder
         (logits, kv_caches), outputs = prefill(prefill_input, seq_len_shape, kv_caches, *params)
 
         a_stat_prefill = _accumulate_act_outlier_stat(a_stat_prefill, outputs)
         w_stat_prefill = _accumulate_weight_outlier_stat(w_stat_prefill, outputs)
 
-        print("  Run decode...")
-        (logits, kv_caches), outputs = decode(first_sampled_token, second_seq_len_shape, kv_caches, *params)
+        # Run Decoder
+        for num in range(MAX_DECODER_INVOKE_NUM):
+            # TODO: support softmax with temperature.
+            logits_max = np.argmax(logits.numpy(), axis=-1).astype("int32")
+            if logits_max[0] in STOP_TOKENS:
+                break
+            next_token = tvm.nd.array(logits_max, device=tvm.device(target.kind.default_keys[0]))
+            num_tokens += logits_max.shape[1]
+            seq_len_shape = tvm.runtime.ShapeTuple([num_tokens])
+            (logits, kv_caches), outputs = decode(next_token, seq_len_shape, kv_caches, *params)
 
-        print("  Run quantize stat accumulation...")
-        a_stat_decode = _accumulate_act_outlier_stat(a_stat_decode, outputs)
-        w_stat_decode = _accumulate_weight_outlier_stat(w_stat_decode, outputs)
+            a_stat_decode = _accumulate_act_outlier_stat(a_stat_decode, outputs)
+            w_stat_decode = _accumulate_weight_outlier_stat(w_stat_decode, outputs)
 
 
     """
