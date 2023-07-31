@@ -496,3 +496,8 @@ def scatter_elements(
 
     """
     return _ffi_api.scatter_elements(data, indices, updates, axis, reduction)  # type: ignore
+
+
+def smooth(data: Expr) -> Expr:
+    assert 1 == 2
+    return _ffi_api.smooth(data)
