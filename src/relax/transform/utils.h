@@ -365,6 +365,20 @@ inline Constant MakeConstantScalar(T value, DataType dtype) {
   return Constant(arr);
 }
 
+/*!
+ * \brief Get an immediate scalar from a Constant expr.
+ *
+ * \param expr The Constant expr.
+ * \return A scalar with type T.
+ */
+template <typename T>
+T GetScalarFromConstant(Expr expr) {
+  const auto* n = expr.as<ConstantNode>();
+  ICHECK(n) << "Expr must be a constant expr - " << n;
+  ICHECK(n->is_scalar());
+  return static_cast<T*>(n->data->data)[0];
+}
+
 inline Array<Integer> GetOrderedPositiveAxes(const Array<Integer>& axes, int ndim) {
   std::vector<int64_t> ret;
   ret.reserve(axes.size());
@@ -379,6 +393,27 @@ inline Array<Integer> GetOrderedPositiveAxes(const Array<Integer>& axes, int ndi
   }
   std::sort(ret.begin(), ret.end());
   return support::AsArray<int64_t, Integer>(ret);
+}
+
+inline Array<PrimExpr> GetShapeFromTensorStructInfo(const TensorStructInfo& tensor_sinfo) {
+  auto shape = tensor_sinfo->GetShape();
+  ICHECK(shape.defined());
+  return shape.value();
+}
+
+inline Array<PrimExpr> GetShapeFromTensor(const Expr& expr) {
+  const auto& tensor_sinfo = Downcast<TensorStructInfo>(expr->struct_info_);
+  return GetShapeFromTensorStructInfo(tensor_sinfo);
+}
+
+inline DataType GetDataTypeFromTensor(const Expr& expr) {
+  const auto& tensor_sinfo = Downcast<TensorStructInfo>(expr->struct_info_);
+  return tensor_sinfo->dtype;
+}
+
+inline int GetNumDimsFromTensor(const Expr& expr) {
+  const auto& tensor_sinfo = Downcast<TensorStructInfo>(expr->struct_info_);
+  return tensor_sinfo->ndim;
 }
 
 }  // namespace relax

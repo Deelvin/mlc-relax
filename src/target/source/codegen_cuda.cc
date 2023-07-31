@@ -1097,18 +1097,27 @@ void CodeGenCUDA::VisitExpr_(const RampNode* op, std::ostream& os) {
 }
 
 void CodeGenCUDA::VisitExpr_(const BroadcastNode* op, std::ostream& os) {  // NOLINT(*)
-  if ((op->dtype.is_int() || op->dtype.is_uint()) && op->dtype.bits() == 8 && op->lanes == 4) {
-    // make_int8x4
+  if ((op->dtype.is_int() || op->dtype.is_uint()) && op->dtype.bits() == 8) {
     const int64_t* p = as_const_int(op->value);
     ICHECK(p);
     int64_t v = *p & 0xFF;
     v = (v << 24) | (v << 16) | (v << 8) | v;
-    if (op->dtype.is_uint()) {
-      os << "(uint)" << v;
-    } else {
-      os << "(int)" << v;
+    if (op->lanes == 4) {
+      // make_int8x4
+      os << (op->dtype.is_uint() ? "(uint)" : "(int)") << v;
+      return;
+    } else if (op->lanes == 8 || op->lanes == 16) {
+      // make_int8x8, make_int8x16
+      os << "make_";
+      PrintType(op->dtype, os);
+      os << '(';
+      for (int i = 0; i < op->lanes / 4; ++i) {
+        if (i != 0) os << ", ";
+        os << (op->dtype.is_uint() ? "(uint)" : "(int)") << v;
+      }
+      os << ')';
+      return;
     }
-    return;
   }
 
   if (op->dtype.is_float16()) {

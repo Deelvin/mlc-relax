@@ -518,6 +518,14 @@ TVM_DLL Pass RewriteCUDAGraph();
  */
 TVM_DLL Pass FewShotTuning(int valid_count, bool benchmark);
 
+//TVM_DLL Pass Annotate(int mode);
+TVM_DLL Pass Annotate(Array<String> funcs, String mode="");
+TVM_DLL Pass CollectStat();
+TVM_DLL Pass SmoothQuantLegalize(String smooth_op_mode);
+TVM_DLL Pass SmoothQuantRealize();
+TVM_DLL Pass SmoothQuantStopLiftParams();
+TVM_DLL Pass SmoothQuantReshapeMatmul();
+
 }  // namespace transform
 }  // namespace relax
 }  // namespace tvm
