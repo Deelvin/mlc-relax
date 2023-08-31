@@ -14,17 +14,14 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Legalize high-level operator calls in Relax functions to call_tir."""
-from . import annotate
-from . import binary
-from . import create
-from . import datatype
-from . import grad
-from . import image
-from . import index
-from . import linear_algebra
-from . import manipulate
-from . import nn
-from . import search
-from . import statistical
-from . import unary
+"""Annotate operators."""
+from . import _ffi_api
+from ..expr import Expr
+
+
+def smooth(data: Expr, scale: Expr, kind: int, mode: str) -> Expr:
+    return _ffi_api.smooth(data, scale, kind, mode)
+
+
+def absmax(data: Expr, kind: int) -> Expr:
+    return _ffi_api.absmax(data, kind)
